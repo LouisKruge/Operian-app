@@ -6,6 +6,7 @@ const TABLES = {
   sequences: "tblKPrcmRUM55BmWs",
   consentLog: "tbl1KTczsjsA0MDRk",
   automationLog: "tblNrZsfAmLrRl2Sr",
+  emailDrafts: "tblpeCePiIwk5XopS",
 };
 
 async function fetchAllRecords(tableId, apiKey) {
@@ -50,12 +51,13 @@ export async function GET(request) {
   }
 
   try {
-    const [companies, contacts, sequences, consentLog, automationLog] = await Promise.all([
+    const [companies, contacts, sequences, consentLog, automationLog, emailDrafts] = await Promise.all([
       fetchAllRecords(TABLES.companies, apiKey),
       fetchAllRecords(TABLES.contacts, apiKey),
       fetchAllRecords(TABLES.sequences, apiKey),
       fetchAllRecords(TABLES.consentLog, apiKey),
       fetchAllRecords(TABLES.automationLog, apiKey),
+      fetchAllRecords(TABLES.emailDrafts, apiKey),
     ]);
 
     return Response.json({
@@ -65,6 +67,7 @@ export async function GET(request) {
       sequences: sequences.map((r) => ({ id: r.id, createdTime: r.createdTime, ...r.fields })),
       consentLog: consentLog.map((r) => ({ id: r.id, createdTime: r.createdTime, ...r.fields })),
       automationLog: automationLog.map((r) => ({ id: r.id, createdTime: r.createdTime, ...r.fields })),
+      emailDrafts: emailDrafts.map((r) => ({ id: r.id, createdTime: r.createdTime, ...r.fields })),
     });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 502 });

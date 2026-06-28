@@ -115,6 +115,7 @@ const TABS = [
   { key: "automation", label: "Automation", icon: Activity },
   { key: "sequences", label: "Sequences", icon: Send },
   { key: "compliance", label: "Compliance", icon: ShieldCheck },
+  { key: "drafts", label: "Drafts", icon: Mail },
 ];
 
 function PasscodeGate({ onSubmit, error, busy }) {
@@ -268,6 +269,7 @@ export default function OperianOperationDashboard() {
         {data && tab === "automation" && <AutomationLog data={data} />}
         {data && tab === "sequences" && <Sequences data={data} />}
         {data && tab === "compliance" && <Compliance data={data} />}
+        {data && tab === "drafts" && <Drafts data={data} dashboardKey={key} onRefresh={() => load(key)} />}
       </main>
     </div>
   );
@@ -593,6 +595,121 @@ function Compliance({ data }) {
           </tbody>
         </table>
       </Glass>
+    </div>
+  );
+}
+
+function Drafts({ data, dashboardKey, onRefresh }) {
+  const { emailDrafts, companies } = data;
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [rowError, setRowError] = useState({});
+
+  const sorted = [...emailDrafts].sort((a, b) => new Date(b["Created At"] || 0) - new Date(a["Created At"] || 0));
+  const statusBreakdown = groupCount(emailDrafts, (d) => d.Status);
+  const pending = emailDrafts.filter((d) => d.Status === "Pending Review").length;
+  const sent = emailDrafts.filter((d) => d.Status === "Sent").length;
+  const rejected = emailDrafts.filter((d) => d.Status === "Rejected").length;
+
+  const filtered = sorted.filter((d) =>
+    !search ||
+    (d.Subject || "").toLowerCase().includes(search.toLowerCase()) ||
+    (d["To Email"] || "").toLowerCase().includes(search.toLowerCase()) ||
+    linkedNames(d.Company, companies, "Company Name").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const act = async (id, action) => {
+    setBusyId(id);
+    setRowError((e) => ({ ...e, [id]: "" }));
+    try {
+      const res = await fetch("/api/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(dashboardKey ? { "x-dashboard-key": dashboardKey } : {}) },
+        body: JSON.stringify({ id, action }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Request failed");
+      onRefresh();
+    } catch (e) {
+      setRowError((err) => ({ ...err, [id]: e.message }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Total Drafts" value={emailDrafts.length} icon={Mail} color="#a855f7" />
+        <StatCard label="Pending Review" value={pending} icon={Clock} color="#fbbf24" />
+        <StatCard label="Sent" value={sent} icon={CheckCircle2} color="#34d399" />
+        <StatCard label="Rejected" value={rejected} icon={XCircle} color="#fb7185" />
+      </div>
+      <Glass className="p-5">
+        <div className="text-[13px] font-semibold text-slate-200 mb-3">Status Breakdown</div>
+        {statusBreakdown.map(([k, v]) => (
+          <BarRow key={k} label={k} count={v} total={emailDrafts.length} color={statusColor(k)} />
+        ))}
+      </Glass>
+      <div className="flex items-center justify-between">
+        <SearchBox value={search} onChange={setSearch} placeholder="Search company, email, or subject…" />
+        <div className="text-[12px] text-slate-500">{filtered.length} of {emailDrafts.length}</div>
+      </div>
+      <div className="space-y-2.5">
+        {filtered.slice(0, 200).map((d) => {
+          const isOpen = expanded === d.id;
+          const isBusy = busyId === d.id;
+          const isPending = d.Status === "Pending Review";
+          return (
+            <Glass key={d.id} className="p-0 overflow-hidden">
+              <button
+                onClick={() => setExpanded(isOpen ? null : d.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.02]"
+              >
+                <Pill label={d.Status} color={statusColor(d.Status)} />
+                <span className="text-[13px] text-slate-200 flex-1 truncate">{d.Subject}</span>
+                <span className="text-[12px] text-slate-500 truncate max-w-[160px]">{linkedNames(d.Company, companies, "Company Name")}</span>
+                <span className="text-[12px] text-slate-500 truncate max-w-[180px]">{d["To Email"]}</span>
+                <span className="text-[11px] text-slate-600">{fmtDate(d["Created At"])}</span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-4 border-t border-white/[0.06] pt-3">
+                  <div className="text-[12px] text-slate-500 mb-1">To: <span className="text-slate-300">{d["To Email"]}</span></div>
+                  <div className="text-[12px] text-slate-500 mb-2">Subject: <span className="text-slate-300">{d.Subject}</span></div>
+                  <pre className="whitespace-pre-wrap text-[12.5px] text-slate-300 bg-white/[0.03] rounded-xl p-3.5 leading-relaxed font-sans">{d.Body}</pre>
+                  {rowError[d.id] && <div className="mt-2 text-[12px] text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2">{rowError[d.id]}</div>}
+                  {isPending ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        onClick={() => act(d.id, "approve")}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors disabled:opacity-40"
+                      >
+                        {isBusy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                        Approve & Send
+                      </button>
+                      <button
+                        onClick={() => act(d.id, "reject")}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 transition-colors disabled:opacity-40"
+                      >
+                        {isBusy ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                        Reject
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-[12px] text-slate-500">
+                      {d.Status === "Sent" ? `Sent ${fmtDate(d["Sent At"])}` : `Marked ${d.Status}`}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Glass>
+          );
+        })}
+        {!filtered.length && <div className="text-[12px] text-slate-500 px-1">No drafts match.</div>}
+      </div>
     </div>
   );
 }
