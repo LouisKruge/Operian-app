@@ -41,11 +41,14 @@ export async function GET(request) {
     );
   }
 
-  const gateKey = process.env.GROWTH_DASHBOARD_KEY;
+  const gateKey = process.env.GROWTH_DASHBOARD_KEY?.trim();
   if (gateKey) {
-    const provided = request.headers.get("x-dashboard-key") || new URL(request.url).searchParams.get("key");
+    const provided = (request.headers.get("x-dashboard-key") || new URL(request.url).searchParams.get("key"))?.trim();
     if (provided !== gateKey) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json(
+        { error: "Unauthorized", expectedLength: gateKey.length, receivedLength: provided?.length ?? 0 },
+        { status: 401 }
+      );
     }
   }
 
