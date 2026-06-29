@@ -21,7 +21,7 @@ function checkAuth(request) {
 }
 
 async function getRecord(id, apiKey) {
-  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${id}`, {
+  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${id}?returnFieldsByFieldId=true`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     cache: "no-store",
   });
