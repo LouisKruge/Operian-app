@@ -605,6 +605,9 @@ function Drafts({ data, dashboardKey, onRefresh }) {
   const [expanded, setExpanded] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [rowError, setRowError] = useState({});
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkError, setBulkError] = useState("");
 
   const sorted = [...emailDrafts].sort((a, b) => new Date(b["Created At"] || 0) - new Date(a["Created At"] || 0));
   const statusBreakdown = groupCount(emailDrafts, (d) => d.Status);
@@ -638,6 +641,27 @@ function Drafts({ data, dashboardKey, onRefresh }) {
     }
   };
 
+  const sendAllPending = async () => {
+    if (!window.confirm(`Send all ${pending} pending drafts now? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    setBulkError("");
+    setBulkResult(null);
+    try {
+      const res = await fetch("/api/drafts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(dashboardKey ? { "x-dashboard-key": dashboardKey } : {}) },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Request failed");
+      setBulkResult(json);
+      onRefresh();
+    } catch (e) {
+      setBulkError(e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -652,10 +676,26 @@ function Drafts({ data, dashboardKey, onRefresh }) {
           <BarRow key={k} label={k} count={v} total={emailDrafts.length} color={statusColor(k)} />
         ))}
       </Glass>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <SearchBox value={search} onChange={setSearch} placeholder="Search company, email, or subject…" />
-        <div className="text-[12px] text-slate-500">{filtered.length} of {emailDrafts.length}</div>
+        <div className="flex items-center gap-3">
+          <div className="text-[12px] text-slate-500">{filtered.length} of {emailDrafts.length}</div>
+          <button
+            onClick={sendAllPending}
+            disabled={bulkBusy || pending === 0}
+            className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors disabled:opacity-40 whitespace-nowrap"
+          >
+            {bulkBusy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            Send All Pending ({pending})
+          </button>
+        </div>
       </div>
+      {bulkError && <div className="text-[12px] text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2">{bulkError}</div>}
+      {bulkResult && (
+        <div className="text-[12px] text-emerald-300 bg-emerald-500/10 rounded-lg px-3 py-2">
+          Sent {bulkResult.sent} of {bulkResult.total}{bulkResult.failed ? ` — ${bulkResult.failed} failed (click again to retry remaining)` : ""}.
+        </div>
+      )}
       <div className="space-y-2.5">
         {filtered.slice(0, 200).map((d) => {
           const isOpen = expanded === d.id;

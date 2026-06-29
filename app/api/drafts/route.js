@@ -12,6 +12,7 @@ const FIELDS = {
 };
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 function checkAuth(request) {
   const gateKey = process.env.GROWTH_DASHBOARD_KEY?.trim();
@@ -61,6 +62,63 @@ async function sendMail(to, subject, body) {
     subject,
     text: body,
   });
+}
+
+async function listPendingRecords(apiKey) {
+  const records = [];
+  let offset;
+  do {
+    const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`);
+    url.searchParams.set("returnFieldsByFieldId", "true");
+    url.searchParams.set("filterByFormula", `{${FIELDS.status}} = "Pending Review"`);
+    if (offset) url.searchParams.set("offset", offset);
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Failed to list pending drafts: ${res.status}`);
+    const json = await res.json();
+    records.push(...json.records);
+    offset = json.offset;
+  } while (offset);
+  return records;
+}
+
+export async function PUT(request) {
+  const apiKey = process.env.AIRTABLE_API_KEY;
+  if (!apiKey) {
+    return Response.json({ error: "AIRTABLE_API_KEY is not configured on the server." }, { status: 500 });
+  }
+  if (!checkAuth(request)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let records;
+  try {
+    records = await listPendingRecords(apiKey);
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 502 });
+  }
+
+  const results = [];
+  for (const record of records) {
+    const to = record.fields[FIELDS.toEmail];
+    const subject = record.fields[FIELDS.subject];
+    const body = record.fields[FIELDS.body];
+    try {
+      if (!to) throw new Error("No recipient email.");
+      await sendMail(to, subject, body);
+      await patchRecord(record.id, { [FIELDS.status]: "Sent", [FIELDS.sentAt]: new Date().toISOString() }, apiKey);
+      results.push({ id: record.id, ok: true });
+    } catch (err) {
+      results.push({ id: record.id, ok: false, error: err.message });
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+
+  const sentCount = results.filter((r) => r.ok).length;
+  const failedCount = results.length - sentCount;
+  return Response.json({ ok: true, total: results.length, sent: sentCount, failed: failedCount, results });
 }
 
 export async function POST(request) {
